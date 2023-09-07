@@ -84,6 +84,7 @@ def get_rhcos_data(version):
     if metadata_file.is_file():
         print(' data is cached')
         return
+    print(' downloading RHCOS metadata...', end='', flush=True)
 
     url_template = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/prod/streams/{stream}/builds/{version}/x86_64/commitmeta.json'
     version_parts = version.split('.')
@@ -101,6 +102,8 @@ def get_rhcos_data(version):
     metadata_content = response.read()
     with metadata_file.open('wb') as f:
         f.write(metadata_content)
+
+    print()
 
 
 def get_rhcos_version(release_info):
