@@ -176,6 +176,7 @@ def show_rhcos_changes(series):
 
         from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
         to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
+
         matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
         changes = matcher.get_opcodes()
         if not changes:
@@ -193,9 +194,9 @@ def show_rhcos_changes(series):
             to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
             if tag == 'replace':
                 print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
-                if name in advisories_by_packages:
-                    for adv in advisories_by_packages[name]:
-                        print(f'    {adv}')
+                adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
+                for adv in advisories_by_packages.get(adv_key, []):
+                    print(f'    {adv}')
             elif tag == 'delete':
                 print(f'  {name} no longer included')
             elif tag == 'insert':
@@ -210,9 +211,8 @@ def get_advisories_by_package(rhcos_data):
     advisories = collections.defaultdict(list)
     for advisory in rhcos_data['rpmostree.advisories']:
         for pkg in advisory[3]:
-            name = pkg.partition('-')[0]
             for ref in advisory[4]['cve_references']:
-                advisories[name].append(ref[1])
+                advisories[pkg].append(ref[1])
     return advisories
 
 
