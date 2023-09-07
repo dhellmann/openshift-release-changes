@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import pathlib
 import subprocess
@@ -42,28 +43,42 @@ def download_release_data(series):
         print(image_spec, end='', flush=True)
 
         if info_file.is_file():
-            print(' cached')
-            continue
+            print(' image metadata cached')
+            info_content = info_file.read_text()
         else:
-            print(' downloading...', end='', flush=True)
+            print(' downloading image metadata...', end='', flush=True)
 
-        complete = subprocess.run(
-            ['oc', 'adm', 'release', 'info', '-o', 'json', image_spec],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if complete.returncode != 0:
-            print(' no such release')
-            break
-        release_info = complete.stdout
+            complete = subprocess.run(
+                ['oc', 'adm', 'release', 'info', '-o', 'json', image_spec],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if complete.returncode != 0:
+                print(' no such release')
+                break
+            info_content = complete.stdout
 
-        try:
-            z_dir.mkdir()
-        except FileExistsError:
-            pass
-        with info_file.open('wb') as f:
-            f.write(release_info)
-        print()
+            try:
+                z_dir.mkdir()
+            except FileExistsError:
+                pass
+            with info_file.open('wb') as f:
+                f.write(info_content)
+            print()
+
+        release_info = json.loads(info_content)
+        rhcos_version = get_rhcos_version(release_info)
+        print(rhcos_version)
+
+
+def get_rhcos_version(release_info):
+    for image in release_info['references']['spec']['tags']:
+        if image['name'] != 'machine-os-content':
+            continue
+        long_version = image['annotations']['io.openshift.build.versions']
+        short_version = long_version.partition('=')[-1]
+        return short_version
+    raise ValueError('Did not find "machine-os-content" image')
 
 
 if __name__ == '__main__':
