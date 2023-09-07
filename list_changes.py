@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import difflib
 import json
 import os
 import pathlib
@@ -22,6 +23,7 @@ def main():
     except FileExistsError:
         pass
     download_release_data(args.series)
+    show_rhcos_changes(args.series)
 
     return 0
 
@@ -68,10 +70,10 @@ def download_release_data(series):
 
         release_info = json.loads(info_content)
         rhcos_version = get_rhcos_version(release_info)
-        get_rhcos_data(rhcos_version)
+        download_rhcos_data(rhcos_version)
 
 
-def get_rhcos_data(version):
+def download_rhcos_data(version):
     print(version, end='', flush=True)
 
     rhcos_dir = CACHE_DIR / 'rhcos'
@@ -114,6 +116,49 @@ def get_rhcos_version(release_info):
         short_version = long_version.partition('=')[-1]
         return short_version
     raise ValueError('Did not find "machine-os-content" image')
+
+
+def show_rhcos_changes(series):
+    from_series_ver = series + '.0'
+    from_info = json.loads((CACHE_DIR / series / from_series_ver / 'release_info.json').read_text())
+    z_version = 0
+    while True:
+        z_version += 1
+        to_series_ver = series + '.' + str(z_version)
+        to_info_file = CACHE_DIR / series / to_series_ver / 'release_info.json'
+        if not to_info_file.is_file():
+            break
+        to_info = json.loads(to_info_file.read_text())
+
+        from_rhcos_ver = get_rhcos_version(from_info)
+        to_rhcos_ver = get_rhcos_version(to_info)
+
+        print(f'{from_series_ver} ({from_rhcos_ver}) -> {to_series_ver} ({to_rhcos_ver})')
+        if from_rhcos_ver == to_rhcos_ver:
+            print('  same content')
+        else:
+            from_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / from_rhcos_ver / 'commitmeta.json').read_text())
+            to_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / to_rhcos_ver / 'commitmeta.json').read_text())
+            from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
+            to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
+            matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == 'equal':
+                    continue
+                from_pkg = from_packages[i1]
+                to_pkg = to_packages[j1]
+                name = from_pkg[0]
+                from_pkg_ver = from_pkg[2] + '-' + from_pkg[3]
+                to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
+                if tag == 'replace':
+                    print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
+                if tag == 'delete':
+                    print(f'  {name} no longer included')
+                if tag == 'insert':
+                    print(f'  {name} {to_pkg_ver} added')
+
+        from_series_ver = to_series_ver
+        from_info = to_info
 
 
 if __name__ == '__main__':
