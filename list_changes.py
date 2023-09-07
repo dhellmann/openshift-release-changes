@@ -101,11 +101,7 @@ def download_rhcos_data(version):
         stream = stream + '-' + version_parts[1][0] + '.' + version_parts[1][1:]
 
     urls.append(url_template.format(stream=stream, version=version))
-
-    # Older versions have other potential locations
-
-    if version_parts[0] in ['410', '411']:
-        urls.append(url_template_old.format(stream='rhcos-' + stream, version=version))
+    urls.append(url_template_old.format(stream='rhcos-' + stream, version=version))
 
     context = ssl.create_default_context()
     context.check_hostname = False
