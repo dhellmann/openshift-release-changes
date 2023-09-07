@@ -119,10 +119,17 @@ def get_rhcos_version(release_info):
 
 
 def show_rhcos_changes(series):
-    from_series_ver = series + '.0'
-    from_info = json.loads((CACHE_DIR / series / from_series_ver / 'release_info.json').read_text())
+    # Prime the loop so that the first thing we do is move "to" to "from".
+    to_series_ver = series + '.0'
+    to_info = json.loads((CACHE_DIR / series / to_series_ver / 'release_info.json').read_text())
     z_version = 0
+
     while True:
+        # Step forward through the series taking the "from" values
+        # from the last "to" values.
+        from_series_ver = to_series_ver
+        from_info = to_info
+
         z_version += 1
         to_series_ver = series + '.' + str(z_version)
         to_info_file = CACHE_DIR / series / to_series_ver / 'release_info.json'
@@ -133,32 +140,41 @@ def show_rhcos_changes(series):
         from_rhcos_ver = get_rhcos_version(from_info)
         to_rhcos_ver = get_rhcos_version(to_info)
 
-        print(f'{from_series_ver} ({from_rhcos_ver}) -> {to_series_ver} ({to_rhcos_ver})')
+        print(f'\n{from_series_ver} ({from_rhcos_ver}) -> {to_series_ver} ({to_rhcos_ver})')
         if from_rhcos_ver == to_rhcos_ver:
-            print('  same content')
-        else:
-            from_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / from_rhcos_ver / 'commitmeta.json').read_text())
-            to_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / to_rhcos_ver / 'commitmeta.json').read_text())
-            from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
-            to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
-            matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'equal':
-                    continue
-                from_pkg = from_packages[i1]
-                to_pkg = to_packages[j1]
-                name = from_pkg[0]
-                from_pkg_ver = from_pkg[2] + '-' + from_pkg[3]
-                to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
-                if tag == 'replace':
-                    print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
-                if tag == 'delete':
-                    print(f'  {name} no longer included')
-                if tag == 'insert':
-                    print(f'  {name} {to_pkg_ver} added')
+            print('  same RHCOS version')
+            continue
 
-        from_series_ver = to_series_ver
-        from_info = to_info
+        from_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / from_rhcos_ver / 'commitmeta.json').read_text())
+        to_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / to_rhcos_ver / 'commitmeta.json').read_text())
+        from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
+        to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
+        matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
+        changes = matcher.get_opcodes()
+        if not changes:
+            print('  no changes')
+            continue
+        found_changes = False
+        for tag, i1, i2, j1, j2 in changes:
+            if tag == 'equal':
+                continue
+            found_changes = True
+            from_pkg = from_packages[i1]
+            to_pkg = to_packages[j1]
+            name = from_pkg[0]
+            from_pkg_ver = from_pkg[2] + '-' + from_pkg[3]
+            to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
+            if tag == 'replace':
+                print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
+            elif tag == 'delete':
+                print(f'  {name} no longer included')
+            elif tag == 'insert':
+                print(f'  {name} {to_pkg_ver} added')
+            else:
+                print(tag, i1, i2, j1, j2)
+        if not found_changes:
+            print('  same versions of all packages')
+
 
 
 if __name__ == '__main__':
