@@ -136,7 +136,11 @@ def get_rhcos_version(release_info):
 def show_rhcos_changes(series):
     # Prime the loop so that the first thing we do is move "to" to "from".
     to_series_ver = series + '.0'
-    to_info = json.loads((CACHE_DIR / series / to_series_ver / 'release_info.json').read_text())
+    try:
+        to_info = json.loads((CACHE_DIR / series / to_series_ver / 'release_info.json').read_text())
+    except FileNotFoundError:
+        print(f'no series data for {series}')
+        return
     z_version = 0
 
     while True:
