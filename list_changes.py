@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import collections
 import difflib
 import json
 import os
@@ -170,6 +171,9 @@ def show_rhcos_changes(series):
         except FileNotFoundError as err:
             print(f'  unable to load RHCOS metadata: {err}')
             continue
+
+        advisories_by_packages = get_advisories_by_package(to_rhcos_data)
+
         from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
         to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
         matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
@@ -189,6 +193,9 @@ def show_rhcos_changes(series):
             to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
             if tag == 'replace':
                 print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
+                if name in advisories_by_packages:
+                    for adv in advisories_by_packages[name]:
+                        print(f'    {adv}')
             elif tag == 'delete':
                 print(f'  {name} no longer included')
             elif tag == 'insert':
@@ -198,6 +205,15 @@ def show_rhcos_changes(series):
         if not found_changes:
             print('  same versions of all packages')
 
+
+def get_advisories_by_package(rhcos_data):
+    advisories = collections.defaultdict(list)
+    for advisory in rhcos_data['rpmostree.advisories']:
+        for pkg in advisory[3]:
+            name = pkg.partition('-')[0]
+            for ref in advisory[4]['cve_references']:
+                advisories[name].append(ref[1])
+    return advisories
 
 
 if __name__ == '__main__':
