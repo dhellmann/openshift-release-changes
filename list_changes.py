@@ -90,19 +90,22 @@ def download_rhcos_data(version):
     urls = []
 
     url_template = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/prod/streams/{stream}/builds/{version}/x86_64/commitmeta.json'
+    # Some older series have the RHCOS metadata in a different place
+    url_template_old = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/releases/{stream}/{version}/x86_64/commitmeta.json'
 
     version_parts = version.split('.')
     # 412 -> 4.12
     stream = version_parts[0][0] + '.' + version_parts[0][1:]
-    # RHEL 9.2 images include the RHEL version in the stream part of the URL
-    if version_parts[1] != '86':
+    # RHEL 9.x images include the RHEL version in the stream part of the URL
+    if version_parts[1][0] != '8':
         stream = stream + '-' + version_parts[1][0] + '.' + version_parts[1][1:]
+
     urls.append(url_template.format(stream=stream, version=version))
 
-    if version_parts[0] == '411':
-        # Somewhere in the middle of the 4.11 series the layout of the server changed
-        url_template_releases = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/releases/{stream}/{version}/x86_64/commitmeta.json'
-        urls.append(url_template_releases.format(stream='rhcos-' + stream, version=version))
+    # Older versions have other potential locations
+
+    if version_parts[0] in ['410', '411']:
+        urls.append(url_template_old.format(stream='rhcos-' + stream, version=version))
 
     context = ssl.create_default_context()
     context.check_hostname = False
@@ -121,7 +124,7 @@ def download_rhcos_data(version):
                 f.write(metadata_content)
             break
     else:
-        raise ValueError(f'Unable to find metadata for {version}')
+        print(f'WARNING: Unable to find metadata for {version}')
 
 
 def get_rhcos_version(release_info):
@@ -161,8 +164,12 @@ def show_rhcos_changes(series):
             print('  same RHCOS version')
             continue
 
-        from_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / from_rhcos_ver / 'commitmeta.json').read_text())
-        to_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / to_rhcos_ver / 'commitmeta.json').read_text())
+        try:
+            from_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / from_rhcos_ver / 'commitmeta.json').read_text())
+            to_rhcos_data = json.loads((CACHE_DIR / 'rhcos' / to_rhcos_ver / 'commitmeta.json').read_text())
+        except FileNotFoundError as err:
+            print(f'  unable to load RHCOS metadata: {err}')
+            continue
         from_packages = sorted([tuple(p) for p in from_rhcos_data['rpmostree.rpmdb.pkglist']])
         to_packages = sorted([tuple(p) for p in to_rhcos_data['rpmostree.rpmdb.pkglist']])
         matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
