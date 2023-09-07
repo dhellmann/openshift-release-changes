@@ -86,26 +86,42 @@ def download_rhcos_data(version):
     if metadata_file.is_file():
         print(' data is cached')
         return
-    print(' downloading RHCOS metadata...', end='', flush=True)
+
+    urls = []
 
     url_template = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/prod/streams/{stream}/builds/{version}/x86_64/commitmeta.json'
+
     version_parts = version.split('.')
     # 412 -> 4.12
     stream = version_parts[0][0] + '.' + version_parts[0][1:]
+    # RHEL 9.2 images include the RHEL version in the stream part of the URL
     if version_parts[1] != '86':
         stream = stream + '-' + version_parts[1][0] + '.' + version_parts[1][1:]
-    url = url_template.format(stream=stream, version=version)
+    urls.append(url_template.format(stream=stream, version=version))
+
+    if version_parts[0] == '411':
+        # Somewhere in the middle of the 4.11 series the layout of the server changed
+        url_template_releases = 'https://releases-rhcos-art.apps.ocp-virt.prod.psi.redhat.com/storage/releases/{stream}/{version}/x86_64/commitmeta.json'
+        urls.append(url_template_releases.format(stream='rhcos-' + stream, version=version))
 
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
 
-    response = urllib.request.urlopen(url, context=context)
-    metadata_content = response.read()
-    with metadata_file.open('wb') as f:
-        f.write(metadata_content)
-
-    print()
+    print(f' downloading RHCOS metadata ...')
+    for url in urls:
+        print(f'  trying {url} ...')
+        try:
+            response = urllib.request.urlopen(url, context=context)
+        except urllib.error.HTTPError:
+            pass
+        else:
+            metadata_content = response.read()
+            with metadata_file.open('wb') as f:
+                f.write(metadata_content)
+            break
+    else:
+        raise ValueError(f'Unable to find metadata for {version}')
 
 
 def get_rhcos_version(release_info):
