@@ -14,12 +14,20 @@ import sys
 import urllib.request
 
 CACHE_DIR=pathlib.Path('data_cache')
+INCLUDE_REBUILDS=False
 
 
 def main():
+    global INCLUDE_REBUILDS
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--series', default=None,
                         help='Release series. (%(default)s)')
+    parser.add_argument('--include-rebuilds',
+                        default=False,
+                        action='store_true',
+                        help='show package changes that are rebuilds of the same version',
+                        )
     parser.add_argument('-v', '--verbose',
                         dest='log_level',
                         default=logging.INFO,
@@ -28,6 +36,8 @@ def main():
                         help='Verbose mode',
                         )
     args = parser.parse_args()
+
+    INCLUDE_REBUILDS = args.include_rebuilds
 
     logging.basicConfig(
         level=args.log_level,
@@ -211,33 +221,46 @@ def show_rhcos_changes(series):
 
         matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
         changes = matcher.get_opcodes()
-        if not changes:
-            print('  No changes to packages')
-            continue
         print('\n  Package updates:')
-        found_changes = False
+        if not changes:
+            print('    No changes to packages')
+            continue
+        found_changes = 0
+        rebuilds = 0
         for tag, i1, i2, j1, j2 in changes:
             if tag == 'equal':
                 continue
-            found_changes = True
             from_pkg = from_packages[i1]
             to_pkg = to_packages[j1]
             name = from_pkg[0]
             from_pkg_ver = from_pkg[2] + '-' + from_pkg[3]
             to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
             if tag == 'replace':
-                print(f'    {name} {from_pkg_ver} -> {to_pkg_ver}')
-                adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
-                for adv in advisories_by_packages.get(adv_key, []):
-                    print(f'    {adv}')
+                # ignore rebuilds
+                is_rebuild = from_pkg[2] == to_pkg[2]
+                if is_rebuild:
+                    rebuilds += 1
+                if (not is_rebuild) or INCLUDE_REBUILDS:
+                    found_changes += 1
+                    print(f'    {name} {from_pkg_ver} -> {to_pkg_ver}')
+                    adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
+                    for adv in advisories_by_packages.get(adv_key, []):
+                        print(f'      {adv}')
             elif tag == 'delete':
+                found_changes += 1
                 print(f'    {name} no longer included')
             elif tag == 'insert':
+                found_changes += 1
                 print(f'    {name} {to_pkg_ver} added')
             else:
+                found_changes += 1
                 print(tag, i1, i2, j1, j2)
         if not found_changes:
-            print('  same versions of all packages')
+            print('    Same versions of all packages')
+        else:
+            print(f'\n  {found_changes} packages upgraded')
+        if rebuilds:
+            print(f'\n  {rebuilds} packages rebuilt')
 
 
 def get_advisories_by_package(rhcos_data):
