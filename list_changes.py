@@ -2,6 +2,7 @@
 
 import argparse
 import collections
+import datetime
 import difflib
 import json
 import logging
@@ -43,8 +44,7 @@ def main():
     for series in all_series:
         download_release_data(series)
     for series in all_series:
-        print(f'\n{series}')
-        show_rhcos_changes(series)
+        show_series(series)
 
     return 0
 
@@ -151,6 +151,11 @@ def get_rhcos_version(release_info):
     raise ValueError('Did not find "machine-os-content" image')
 
 
+def show_series(series):
+    print(f'\n{series}')
+    show_rhcos_changes(series)
+
+
 def show_rhcos_changes(series):
     # Prime the loop so that the first thing we do is move "to" to "from".
     to_series_ver = series + '.0'
@@ -177,9 +182,19 @@ def show_rhcos_changes(series):
         from_rhcos_ver = get_rhcos_version(from_info)
         to_rhcos_ver = get_rhcos_version(to_info)
 
+        def parse_datetime(dt):
+            # 2023-05-16T10:09:04Z
+            return datetime.datetime.strptime(dt, '%Y-%m-%dT%H:%M:%SZ')
+
+        from_created = parse_datetime(from_info['config']['created'])
+        to_created = parse_datetime(to_info['config']['created'])
+        age = to_created - from_created
+
         print(f'\n{from_series_ver} ({from_rhcos_ver}) -> {to_series_ver} ({to_rhcos_ver})')
+        print(f'\n  Created {to_created} (age: {age})')
+
         if from_rhcos_ver == to_rhcos_ver:
-            print('  same RHCOS version')
+            print('  Same RHCOS version')
             continue
 
         try:
@@ -197,8 +212,9 @@ def show_rhcos_changes(series):
         matcher = difflib.SequenceMatcher(None, from_packages, to_packages)
         changes = matcher.get_opcodes()
         if not changes:
-            print('  no changes')
+            print('  No changes to packages')
             continue
+        print('\n  Package updates:')
         found_changes = False
         for tag, i1, i2, j1, j2 in changes:
             if tag == 'equal':
@@ -210,14 +226,14 @@ def show_rhcos_changes(series):
             from_pkg_ver = from_pkg[2] + '-' + from_pkg[3]
             to_pkg_ver = to_pkg[2] + '-' + to_pkg[3]
             if tag == 'replace':
-                print(f'  {name} {from_pkg_ver} -> {to_pkg_ver}')
+                print(f'    {name} {from_pkg_ver} -> {to_pkg_ver}')
                 adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
                 for adv in advisories_by_packages.get(adv_key, []):
                     print(f'    {adv}')
             elif tag == 'delete':
-                print(f'  {name} no longer included')
+                print(f'    {name} no longer included')
             elif tag == 'insert':
-                print(f'  {name} {to_pkg_ver} added')
+                print(f'    {name} {to_pkg_ver} added')
             else:
                 print(tag, i1, i2, j1, j2)
         if not found_changes:
