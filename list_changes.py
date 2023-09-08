@@ -4,10 +4,12 @@ import argparse
 import collections
 import difflib
 import json
+import logging
 import os
 import pathlib
 import ssl
 import subprocess
+import sys
 import urllib.request
 
 CACHE_DIR=pathlib.Path('data_cache')
@@ -15,21 +17,40 @@ CACHE_DIR=pathlib.Path('data_cache')
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--series', default='4.12',
+    parser.add_argument('--series', default=None,
                         help='Release series. (%(default)s)')
+    parser.add_argument('-v', '--verbose',
+                        dest='log_level',
+                        default=logging.INFO,
+                        action='store_const',
+                        const=logging.DEBUG,
+                        help='Verbose mode',
+                        )
     args = parser.parse_args()
 
-    try:
+    logging.basicConfig(
+        level=args.log_level,
+        stream=sys.stderr,
+    )
+
+    if args.series:
+        all_series = [args.series]
+    else:
+        all_series = ['4.13', '4.12', '4.11', '4.10', '4.9', '4.8']
+
+    if not CACHE_DIR.is_dir():
         CACHE_DIR.mkdir()
-    except FileExistsError:
-        pass
-    download_release_data(args.series)
-    show_rhcos_changes(args.series)
+    for series in all_series:
+        download_release_data(series)
+    for series in all_series:
+        print(f'\n{series}')
+        show_rhcos_changes(series)
 
     return 0
 
 
 def download_release_data(series):
+    logging.info('downloading data for %s', series)
     image_spec_template = 'quay.io/openshift-release-dev/ocp-release:{full_version}-x86_64'
     series_dir = CACHE_DIR / series
     try:
@@ -45,13 +66,12 @@ def download_release_data(series):
         info_file = z_dir / 'release_info.json'
 
         image_spec = image_spec_template.format(full_version=full_version)
-        print(image_spec, end='', flush=True)
 
         if info_file.is_file():
-            print(' image metadata cached')
+            logging.debug('%s image metadata cached', image_spec)
             info_content = info_file.read_text()
         else:
-            print(' downloading image metadata...', end='', flush=True)
+            logging.debug('%s downloading image metadata', image_spec)
 
             complete = subprocess.run(
                 ['oc', 'adm', 'release', 'info', '-o', 'json', image_spec],
@@ -59,7 +79,7 @@ def download_release_data(series):
                 stderr=subprocess.PIPE,
             )
             if complete.returncode != 0:
-                print(' no such release')
+                logging.debug('%s no such release', image_spec)
                 break
             info_content = complete.stdout
 
@@ -67,7 +87,6 @@ def download_release_data(series):
                 z_dir.mkdir()
             with info_file.open('wb') as f:
                 f.write(info_content)
-            print()
 
         release_info = json.loads(info_content)
         rhcos_version = get_rhcos_version(release_info)
@@ -75,8 +94,6 @@ def download_release_data(series):
 
 
 def download_rhcos_data(version):
-    print(version, end='', flush=True)
-
     rhcos_dir = CACHE_DIR / 'rhcos'
     if not rhcos_dir.is_dir():
         rhcos_dir.mkdir()
@@ -85,7 +102,7 @@ def download_rhcos_data(version):
         version_dir.mkdir()
     metadata_file = version_dir / 'commitmeta.json'
     if metadata_file.is_file():
-        print(' data is cached')
+        logging.debug('%s RHCOS data is cached', version)
         return
 
     urls = []
@@ -108,9 +125,9 @@ def download_rhcos_data(version):
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
 
-    print(f' downloading RHCOS metadata ...')
+    logging.debug('downloading RHCOS metadata for %s', version)
     for url in urls:
-        print(f'  trying {url} ...')
+        logging.debug('trying %s', url)
         try:
             response = urllib.request.urlopen(url, context=context)
         except urllib.error.HTTPError:
@@ -121,7 +138,7 @@ def download_rhcos_data(version):
                 f.write(metadata_content)
             break
     else:
-        print(f'WARNING: Unable to find metadata for {version}')
+        logging.warning('Unable to find metadata for RHCOS %s', version)
 
 
 def get_rhcos_version(release_info):
@@ -140,7 +157,7 @@ def show_rhcos_changes(series):
     try:
         to_info = json.loads((CACHE_DIR / series / to_series_ver / 'release_info.json').read_text())
     except FileNotFoundError:
-        print(f'no series data for {series}')
+        logging.warning('no series data for %s', series)
         return
     z_version = 0
 
