@@ -228,6 +228,7 @@ def show_rhcos_changes(series):
             continue
         found_changes = 0
         rebuilds = 0
+        advisory_severities = collections.defaultdict(int)
         for tag, i1, i2, j1, j2 in changes:
             if tag == 'equal':
                 continue
@@ -247,7 +248,8 @@ def show_rhcos_changes(series):
                     adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
                     for adv in advisories_by_packages.get(adv_key, []):
                         sev = get_advisory_severity_from_message(adv)
-                        print(f'      {sev} {adv}')
+                        print(f'      [{sev}] {adv}')
+                        advisory_severities[sev] += 1
             elif tag == 'delete':
                 found_changes += 1
                 print(f'    {name} no longer included')
@@ -259,10 +261,12 @@ def show_rhcos_changes(series):
                 print(tag, i1, i2, j1, j2)
         if not found_changes:
             print('    Same versions of all packages')
-        else:
-            print(f'\n  {found_changes} packages upgraded')
+        print(f'\n  {found_changes} packages upgraded')
         if rebuilds:
-            print(f'\n  {rebuilds} packages rebuilt')
+            print(f'  {rebuilds} packages rebuilt')
+        if advisory_severities:
+            for sev, count in advisory_severities.items():
+                print(f'  {count} {sev} advisories')
 
 
 def get_advisories_by_package(rhcos_data):
