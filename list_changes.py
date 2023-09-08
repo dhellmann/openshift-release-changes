@@ -15,6 +15,7 @@ import urllib.request
 
 CACHE_DIR=pathlib.Path('data_cache')
 INCLUDE_REBUILDS=False
+ADVISORY_SEVERITIES = {}
 
 
 def main():
@@ -245,7 +246,8 @@ def show_rhcos_changes(series):
                     print(f'    {name} {from_pkg_ver} -> {to_pkg_ver}')
                     adv_key = name + '-' + '-'.join(to_pkg[2:-1]) + '.' + to_pkg[-1]
                     for adv in advisories_by_packages.get(adv_key, []):
-                        print(f'      {adv}')
+                        sev = get_advisory_severity_from_message(adv)
+                        print(f'      {sev} {adv}')
             elif tag == 'delete':
                 found_changes += 1
                 print(f'    {name} no longer included')
@@ -270,6 +272,34 @@ def get_advisories_by_package(rhcos_data):
             for ref in advisory[4]['cve_references']:
                 advisories[pkg].append(ref[1])
     return advisories
+
+
+def get_advisory_severity_from_message(message):
+    cve_cache = CACHE_DIR / 'cve'
+    if not cve_cache.is_dir():
+        cve_cache.mkdir()
+    cve = message.split(' ')[0]
+    if not cve.startswith('CVE'):
+        return ''
+    if cve not in ADVISORY_SEVERITIES:
+        cve_file = cve_cache / f'{cve}.json'
+        if cve_file.is_file():
+            content = cve_file.read_text()
+        else:
+            # For some reason, curl can access these URLs but Python
+            # cannot. Just use curl in this hacky script.
+            url = f'https://access.redhat.com/hydra/rest/securitydata/cve/{cve}.json'
+            complete = subprocess.run(
+                ['curl', url],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            content = complete.stdout
+            with cve_file.open('wb') as f:
+                f.write(content)
+        data = json.loads(content)
+        ADVISORY_SEVERITIES[cve] = data['threat_severity']
+    return ADVISORY_SEVERITIES[cve]
 
 
 if __name__ == '__main__':
